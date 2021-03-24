@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+
+# DB 연결정보
+stock_conn:
+    stock_ip: "127.0.0.1"
+    stock_port: 3306
+    stock_db: "stock"
+    stock_user: "stock"
+    stock_pswd: "wndyd"
+    # 컬럼 순서 지정. 소스와 동일해야 함
+    stock_columns:
+        - "STC_CD"
+        - "DT"
+        - "TM"
+        - "NOW_PRC"
+        - "SELL_PRC"
+        - "BUY_PRC"
+
+# 종목코드
+list_jongmok_code: "005930"
+
+# 데몬 수행 시간
+run_day:
+    - "090000"
+    - "153800"
+
+# 해당 데몬 수행 분. 해당하는 분에만 작업을 시작함
+run_minute:
+    - "1900"
+    - "5959"

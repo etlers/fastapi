@@ -1,10 +1,4 @@
-from typing import Optional
-from fastapi import FastAPI
-
-import os, sys, util
-import threading
-import yaml
-
+# -*- coding: utf-8 -*-
 import datetime
 import sys
 import os
@@ -20,8 +14,35 @@ from PyQt5.QtCore import QThread
 from PyQt5.QtCore import QEventLoop
 from PyQt5.QtWidgets import QApplication
 
-app = FastAPI()
+import numpy as np
+import pandas as pd
 
+import util
+import yaml
+import pymysql
+
+
+# 조회하고자 하는 모든 종목 리스트 추출 저장
+with open('config.yaml', encoding='UTF8') as f:
+    kiwoom_cfg = yaml.load(f, Loader=yaml.FullLoader)
+    # 종목코드
+    jongmok_code = kiwoom_cfg["list_jongmok_code"]
+    # 수행 시간
+    run_day_start = kiwoom_cfg["run_day"][0]
+    run_day_end = kiwoom_cfg["run_day"][1]
+    run_minute_start = kiwoom_cfg["run_minute"][0]
+    run_minute_end = kiwoom_cfg["run_minute"][1]
+    # 디비 정보
+    host_ip = kiwoom_cfg["stock_conn"]["stock_ip"]
+    host_port = kiwoom_cfg["stock_conn"]["stock_port"]
+    db_name = kiwoom_cfg["stock_conn"]["stock_db"]
+    user_name = kiwoom_cfg["stock_conn"]["stock_user"]
+    user_pswd = kiwoom_cfg["stock_conn"]["stock_pswd"]
+
+dict_agreement = {}
+
+now_dt = datetime.date.today()
+DT = str(now_dt.year) + str(now_dt.month) + str(now_dt.day)
 
 
 # 상수
@@ -849,51 +870,118 @@ class Kiwoom(QAxWidget):
         return res
 
 
-# 로그인 처리
-def kiwwon_login(low, high):
-    app = QApplication(sys.argv)
-    hts = Kiwoom()
-
-    # login
-    if hts.kiwoom_GetConnectState() == 0:
-        logger.debug('로그인 시도')
-        res = hts.kiwoom_CommConnect()
-        logger.debug('로그인 결과: {}'.format(res))
-        if res.get('result') != 0:
-            print("Login failed")
-            sys.exit()
-        app.exec()
-
-# 계좌
-def account_info(accnt_no):
-    app = QApplication(sys.argv)
-    hts = Kiwoom()
-    # login
-    print("login", hts.kiwoom_GetConnectState())
-    if hts.kiwoom_GetConnectState() == 0:
-        logger.debug('로그인 시도')
-        res = hts.kiwoom_CommConnect()
-        logger.debug('로그인 결과: {}'.format(res))
-        if res.get('result') != 0:
-            print("Login failed")
-            sys.exit()
-    hts.kiwoom_TR_OPT10085(accnt_no)
+# 환경정보 가져오기
+def get_yaml_info():
+    pass
 
 
-@app.get("/")
-def read_root():
-    t = threading.Thread(target=kiwwon_login, args=(1, 100000))
-    t.start()
+# 계좌 보유수량 가져오기
+def get_stock_cnt():
+    pass
+
+
+# 디비에서 정보 가져오기
+def get_now_price_from_db():
+    now_price = 0
+
+    conn = pymysql.connect(
+        host=host_ip, 
+        port=host_port, 
+        user=user_name, 
+        password=user_pswd, 
+        charset='utf8', 
+        database=db_name
+    )
+
+    sql = """
+        SELECT NOW_PRC 
+          FROM STOCK.TB_STC_PRC TSP 
+         WHERE TSP.STC_CD = '122630'
+         ORDER BY STC_PRC_SN DESC 
+         LIMIT 1
+    """
     
-    return {"Hello": "Kiwoom API"}
+    try:
+        cursor = conn.cursor() 
+        cursor.execute(sql)       
+        rows = cursor.fetchall()
+        for row in rows:
+            now_price = row 
+    finally:
+        conn.commit()
+        conn.close()
+    
+    return now_price
 
 
-@app.get("/items/{item_id}")
-def read_item(item_id: int, q: Optional[str] = None):
-    return {"item_id": item_id, "q": q}
+
+# 주문을 넣기 위한 실제 로직
+# 꼭지점을 찍고 올라올 때 매수. 내려올 때 매도가 됨
+def execute_logic(hts):
+    # hts.kiwoom_TR_OPT10085("8162124111")
+    own_amount = 1000000
+    gap_amount = 20
+    order_cnt = 0
+    # 매수(1), 매도(2) 구분. 처음에는 무조건 매수가 됨
+    order_div = 1
+    # 최초에 값을 가지고 오는 것이 min 값이 됨
+    std_price = get_now_price_from_db() + gap_amount
+
+    while True:
+        now_dtm = datetime.datetime.now()
+        run_hms = str(now_dtm.hour).zfill(2) + str(now_dtm.minute).zfill(2) + str(now_dtm.second).zfill(2)
+
+        # 15시 25분이 넘으면 마지막 매도 주문을 넣고 끝낸다
+        if run_hms > "152500":
+            # 계좌에 수량이 있는지 확인
+            if order_cnt > 0:
+                hts.kiwoom_SendOrder("계좌수익률요청", "1234", "8162124111", 2, "122630", 1, 0, "03", "")
+                break
+        
+        # 현재 가격
+        now_price = get_now_price_from_db()
+        
+        #####################################################################################################
+        # 가장 최근 가격과 최소값 + 갭 둘을 비교
+        #####################################################################################################
+        # 매수의 경우,
+        if order_div == 1:
+            # 기준가격과 현재 가격이 같으면 매수
+            if now_price == std_price:
+                # 수량 계산. 증액해 계산
+                order_cnt = int(own_amount / (now_price + gap_amount))
+                hts.kiwoom_SendOrder("계좌수익률요청", "1234", "8162124111", order_div, "122630", 1, 0, "03", "")
+            # 현재가격이 기준 가격보다 적으면 기준 가격을 변경
+            elif now_price + gap_amount < std_price:
+                std_price = now_price + gap_amount
+        # 매도인 경우 현재가격이 기준 가격보다 크면 기준 가격을 변경
+        else:
+            # 기준가격과 현재 가격이 같으면 매도
+            if now_price == std_price:
+                # 수량 계산. 증액해 계산
+                order_cnt = int(own_amount / (now_price + gap_amount))
+                hts.kiwoom_SendOrder("계좌수익률요청", "1234", "8162124111", order_div, "122630", 1, 0, "03", "")
+            elif now_price - gap_amount > std_price:
+                std_price = now_price - gap_amount
+        #####################################################################################################
+
+        # 0.5초 대기        
+        time.sleep(0.5)
 
 
-@app.get("/account_info/accnt_no/{accnt_no}")
-def trading_stock(accnt_no: str):
-    account_info(accnt_no)
-    return {"accnt_no": accnt_no}
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    hts = Kiwoom()
+    # login
+    #print("login", hts.kiwoom_GetConnectState())
+    if hts.kiwoom_GetConnectState() == 0:
+        logger.debug('로그인 시도')
+        res = hts.kiwoom_CommConnect()
+        logger.debug('로그인 결과: {}'.format(res))
+        if res.get('result') != 0:
+            print("Login failed")
+            sys.exit()
+    
+    # 시작
+    execute_logic(hts)
+    
