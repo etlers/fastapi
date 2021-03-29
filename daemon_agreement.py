@@ -31,7 +31,7 @@ import pymysql
 with open('config.yaml', encoding='UTF8') as f:
     kiwoom_cfg = yaml.load(f, Loader=yaml.FullLoader)
     # 종목코드
-    jongmok_code = kiwoom_cfg["list_jongmok_code"]
+    jongmok_code = kiwoom_cfg["jongmok_code"]
     # 수행 시간
     run_day_start = kiwoom_cfg["run_day"][0]
     run_day_end = kiwoom_cfg["run_day"][1]
@@ -45,6 +45,8 @@ with open('config.yaml', encoding='UTF8') as f:
     user_pswd = kiwoom_cfg["stock_conn"]["stock_pswd"]
     # 컬럼 목록 리스트
     list_columns = kiwoom_cfg["stock_conn"]["stock_columns"]
+    # 조회하는 간격 초
+    term_seconds = kiwoom_cfg["term_seconds"]
 
 dict_agreement = {}
 
@@ -79,7 +81,10 @@ logger.addHandler(fh_log)
 logger.addHandler(stdout_handler)
 
 
-def check_conn_db():
+def insert_data(dict_value):
+    if dict_value["시간"] < "090000":
+        return False
+    
     conn = pymysql.connect(
         host=host_ip, 
         port=host_port, 
@@ -89,39 +94,23 @@ def check_conn_db():
         database=db_name
     )
     
-    sql = "SELECT NOW()"
-
-    cursor = conn.cursor() 
-    cursor.execute(sql)        
-
-    conn.commit()
-    conn.close()
-
-def insert_data(dict_value):
-    conn = pymysql.connect(
-        host=host_ip, 
-        port=host_port, 
-        user=user_name, 
-        password=user_pswd, 
-        charset='utf8', 
-        database=db_name
-    )
-    print(dict_value)
     sql = "insert into TB_STC_PRC ("
     for col in list_columns:
         sql += col + ","
     sql = sql[:len(sql)-1] + ")" + "\n" + "values\n("
-    insert_tf = True
+
     for key, value in dict_value.items():
         sql += "'" + "".join(value.replace("-", "")) + "',"
 
     sql = sql[:len(sql)-1] + ")"
-    print(sql)    
+    
     cursor = conn.cursor() 
     cursor.execute(sql)        
 
     conn.commit()
     conn.close()
+
+    return True
 
 
 
@@ -350,9 +339,14 @@ if __name__ == '__main__':
         if res.get('result') != 0:
             print("Login failed")
             sys.exit()
+
+    # 최초 무조건 한번 추출. 메세지 확인창 체크를 위해.
+    hts.kiwoom_TR_OPT10003(jongmok_code)
     
     # 시간 동안 수행
     while True:
+        # 처음은 한번 추출
+        #hts.kiwoom_TR_OPT10003(jongmok_code)
         now_dtm = datetime.datetime.now()
         run_hms = str(now_dtm.hour).zfill(2) + str(now_dtm.minute).zfill(2) + str(now_dtm.second).zfill(2)
         # 현재 시각이 지정한 종료 시각보다 크면 그냥 종료를 함
@@ -366,5 +360,6 @@ if __name__ == '__main__':
             # 하루 중 지정한 분 구간에 포함되면 수행
             if (run_minsec >= run_minute_start and run_minsec <= run_minute_end):
                 hts.kiwoom_TR_OPT10003(jongmok_code)
-        # 1초 대기
-        time.sleep(1)
+        # 지정한 초 대기
+        print("wating...", run_hms)
+        time.sleep(term_seconds)

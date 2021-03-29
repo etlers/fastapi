@@ -359,5 +359,5 @@ if __name__ == '__main__':
             if (run_minsec >= run_minute_start and run_minsec <= run_minute_end):
                 hts.kiwoom_TR_OPT10003(jongmok_code)
         # 지정한 초 대기
-        print("waiting...")
+        print("waiting...", run_hms)
         time.sleep(term_seconds)
