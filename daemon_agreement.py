@@ -49,7 +49,7 @@ with open('config.yaml', encoding='UTF8') as f:
 dict_agreement = {}
 
 now_dt = datetime.date.today()
-DT = str(now_dt.year) + str(now_dt.month) + str(now_dt.day)
+DT = str(now_dt.year) + str(now_dt.month).zfill(2) + str(now_dt.day).zfill(2)
 
 
 # 상수
@@ -79,6 +79,24 @@ logger.addHandler(fh_log)
 logger.addHandler(stdout_handler)
 
 
+def check_conn_db():
+    conn = pymysql.connect(
+        host=host_ip, 
+        port=host_port, 
+        user=user_name, 
+        password=user_pswd, 
+        charset='utf8', 
+        database=db_name
+    )
+    
+    sql = "SELECT NOW()"
+
+    cursor = conn.cursor() 
+    cursor.execute(sql)        
+
+    conn.commit()
+    conn.close()
+
 def insert_data(dict_value):
     conn = pymysql.connect(
         host=host_ip, 
@@ -88,17 +106,17 @@ def insert_data(dict_value):
         charset='utf8', 
         database=db_name
     )
-
+    print(dict_value)
     sql = "insert into TB_STC_PRC ("
     for col in list_columns:
         sql += col + ","
     sql = sql[:len(sql)-1] + ")" + "\n" + "values\n("
-
+    insert_tf = True
     for key, value in dict_value.items():
         sql += "'" + "".join(value.replace("-", "")) + "',"
 
     sql = sql[:len(sql)-1] + ")"
-    
+    print(sql)    
     cursor = conn.cursor() 
     cursor.execute(sql)        
 

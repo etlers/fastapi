@@ -38,6 +38,10 @@ with open('config.yaml', encoding='UTF8') as f:
     db_name = kiwoom_cfg["stock_conn"]["stock_db"]
     user_name = kiwoom_cfg["stock_conn"]["stock_user"]
     user_pswd = kiwoom_cfg["stock_conn"]["stock_pswd"]
+    # 거래금액
+    deal_amount = kiwoom_cfg["deal_amount"]
+    # 매수, 매도 갭
+    gap_amount = kiwoom_cfg["gap_amount"]
 
 dict_agreement = {}
 
@@ -893,40 +897,37 @@ def get_now_price_from_db():
         database=db_name
     )
 
-    sql = """
-        SELECT NOW_PRC 
-          FROM STOCK.TB_STC_PRC TSP 
-         WHERE TSP.STC_CD = '122630'
-         ORDER BY STC_PRC_SN DESC 
-         LIMIT 1
-    """
+    sql = "select now_prc from tb_stc_prc where stc_cd = '$stc_cd$' order by stc_prc_sn desc limit 1"
+    sql = sql.replace("$stc_cd$", jongmok_code)
     
     try:
         cursor = conn.cursor() 
         cursor.execute(sql)       
         rows = cursor.fetchall()
         for row in rows:
-            now_price = row 
+            now_price = row[0]
     finally:
-        conn.commit()
         conn.close()
     
     return now_price
-
 
 
 # 주문을 넣기 위한 실제 로직
 # 꼭지점을 찍고 올라올 때 매수. 내려올 때 매도가 됨
 def execute_logic(hts):
     # hts.kiwoom_TR_OPT10085("8162124111")
-    own_amount = 1000000
-    gap_amount = 20
+    #deal_amount = 100000
+    #gap_amount = 20
     order_cnt = 0
     # 매수(1), 매도(2) 구분. 처음에는 무조건 매수가 됨
     order_div = 1
     # 최초에 값을 가지고 오는 것이 min 값이 됨
-    std_price = get_now_price_from_db() + gap_amount
-
+    now_price = get_now_price_from_db()
+    # 기준금액. 팔거나 사고자 하는 금액
+    std_price = now_price + gap_amount
+    
+    print("Pos  Price")
+        
     while True:
         now_dtm = datetime.datetime.now()
         run_hms = str(now_dtm.hour).zfill(2) + str(now_dtm.minute).zfill(2) + str(now_dtm.second).zfill(2)
@@ -940,7 +941,6 @@ def execute_logic(hts):
         
         # 현재 가격
         now_price = get_now_price_from_db()
-        
         #####################################################################################################
         # 가장 최근 가격과 최소값 + 갭 둘을 비교
         #####################################################################################################
@@ -949,24 +949,36 @@ def execute_logic(hts):
             # 기준가격과 현재 가격이 같으면 매수
             if now_price == std_price:
                 # 수량 계산. 증액해 계산
-                order_cnt = int(own_amount / (now_price + gap_amount))
+                order_cnt = int(deal_amount / (now_price + gap_amount))
+                print("Buy", std_price, now_price, order_cnt)
                 hts.kiwoom_SendOrder("계좌수익률요청", "1234", "8162124111", order_div, "122630", 1, 0, "03", "")
+                order_div = 2
+                std_price = now_price - gap_amount
             # 현재가격이 기준 가격보다 적으면 기준 가격을 변경
             elif now_price + gap_amount < std_price:
                 std_price = now_price + gap_amount
+            print(std_price, now_price)
         # 매도인 경우 현재가격이 기준 가격보다 크면 기준 가격을 변경
         else:
             # 기준가격과 현재 가격이 같으면 매도
             if now_price == std_price:
                 # 수량 계산. 증액해 계산
-                order_cnt = int(own_amount / (now_price + gap_amount))
+                print("Sell", std_price, now_price, order_cnt)
                 hts.kiwoom_SendOrder("계좌수익률요청", "1234", "8162124111", order_div, "122630", 1, 0, "03", "")
+                order_cnt = 0
+                order_div = 1
+                std_price = now_price + gap_amount
             elif now_price - gap_amount > std_price:
-                std_price = now_price - gap_amount
+                std_price = now_price - gap_amount                    
+            print(std_price, now_price)
         #####################################################################################################
 
         # 0.5초 대기        
         time.sleep(0.5)
+        
+    if order_cnt > 0:
+        print("ending sell", std_price, now_price, order_cnt)    
+        hts.kiwoom_SendOrder("계좌수익률요청", "1234", "8162124111", 2, "122630", 1, 0, "03", "")
 
 
 if __name__ == '__main__':
@@ -983,5 +995,6 @@ if __name__ == '__main__':
             sys.exit()
     
     # 시작
-    execute_logic(hts)
-    
+    #execute_logic(hts)
+    hts.kiwoom_TR_OPW00001("8162124111")
+    hts.kiwoom_TR_OPT10085("8162124111")
